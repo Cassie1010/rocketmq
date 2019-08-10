@@ -49,10 +49,30 @@ public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    /**
+     * 存储所有 Topic 的属性信息
+     * 一个 topic 对应 多个 Broker
+     */
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
+    /**
+     * 存储 BrokerName 对应的属性信息
+     * BrokerName、所属集群名称、主备 Broker 地址（brokerId=0是主，非0是备）
+     */
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
+    /**
+     * 存储集群的信息
+     * 存储集群中所有 Broker 名称
+     */
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
+    /**
+     * 存储Broker机器的实时状态
+     * 包含心跳的更新时间 lastUpdateTimestamp
+     */
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
+    /**
+     * 存储过滤服务器信息
+     * 已经废弃
+     */
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
     public RouteInfoManager() {
@@ -99,6 +119,19 @@ public class RouteInfoManager {
         return topicList.encode();
     }
 
+    /**
+     *
+     * @param clusterName
+     * @param brokerAddr
+     * @param brokerName
+     * @param brokerId
+     * @param haServerAddr
+     * @param topicConfigWrapper
+     * @param filterServerList
+     * @param channel
+     * @return 当 broker 为主节点时：不返回 haServerAddr、masterAddr
+     *         当 broker 为从节点时：返回 haServerAddr、masterAddr
+     */
     public RegisterBrokerResult registerBroker(
         final String clusterName,
         final String brokerAddr,
@@ -113,6 +146,7 @@ public class RouteInfoManager {
             try {
                 this.lock.writeLock().lockInterruptibly();
 
+                // 更新集群信息
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
                 if (null == brokerNames) {
                     brokerNames = new HashSet<String>();
@@ -122,6 +156,7 @@ public class RouteInfoManager {
 
                 boolean registerFirst = false;
 
+                // 更新broker信息
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null == brokerData) {
                     registerFirst = true;
@@ -142,6 +177,7 @@ public class RouteInfoManager {
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
                 registerFirst = registerFirst || (null == oldAddr);
 
+                // 更新topic信息
                 if (null != topicConfigWrapper
                     && MixAll.MASTER_ID == brokerId) {
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
@@ -156,6 +192,7 @@ public class RouteInfoManager {
                     }
                 }
 
+                // 更新broker连接信息
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr,
                     new BrokerLiveInfo(
                         System.currentTimeMillis(),
@@ -166,6 +203,7 @@ public class RouteInfoManager {
                     log.info("new broker registered, {} HAServer: {}", brokerAddr, haServerAddr);
                 }
 
+                // 更新filtersrv信息
                 if (filterServerList != null) {
                     if (filterServerList.isEmpty()) {
                         this.filterServerTable.remove(brokerAddr);
@@ -753,9 +791,16 @@ public class RouteInfoManager {
 }
 
 class BrokerLiveInfo {
+    /**
+     * broker 最后心跳时间
+     */
     private long lastUpdateTimestamp;
     private DataVersion dataVersion;
     private Channel channel;
+    /**
+     * ha服务器地址
+     * 用于内网通讯的地址
+     */
     private String haServerAddr;
 
     public BrokerLiveInfo(long lastUpdateTimestamp, DataVersion dataVersion, Channel channel,
