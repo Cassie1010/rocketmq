@@ -16,6 +16,8 @@
  */
 package org.apache.rocketmq.common.message;
 
+import org.apache.rocketmq.common.sysflag.MessageSysFlag;
+
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Collection;
@@ -25,10 +27,31 @@ import java.util.Map;
 public class Message implements Serializable {
     private static final long serialVersionUID = 8445773977080406428L;
 
+    /**
+     * 消息所属主题
+     */
     private String topic;
+    /**
+     * 消息 Flag(RocketMQ 不做处理)
+     * @see MessageSysFlag
+     */
     private int flag;
+    /**
+     * 扩展属性
+     * TAGS：用于消息过滤。
+     * KEYS：Message 索引键， 多个用空格隔开， RocketMQ 可以根据这些 key 快速检索到消息。
+     * WAIT：消息发送时是否等消息存储完成后再返回。
+     * DELAY：消息延迟级别，用于定时消息或消息重试。
+     * TODO INSTANCE_ID：待确认
+     */
     private Map<String, String> properties;
+    /**
+     * 消息体
+     */
     private byte[] body;
+    /**
+     * 事务
+     */
     private String transactionId;
 
     public Message() {

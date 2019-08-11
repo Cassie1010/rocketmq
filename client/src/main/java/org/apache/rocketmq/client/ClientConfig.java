@@ -36,6 +36,7 @@ public class ClientConfig {
     private String clientIP = RemotingUtil.getLocalAddress();
     private String instanceName = System.getProperty("rocketmq.client.name", "DEFAULT");
     private int clientCallbackExecutorThreads = Runtime.getRuntime().availableProcessors();
+    // TODO 对应message 属性中 INSTANCE_ID
     protected String namespace;
     protected AccessChannel accessChannel = AccessChannel.LOCAL;
 
@@ -59,6 +60,10 @@ public class ClientConfig {
 
     private LanguageCode language = LanguageCode.JAVA;
 
+    /**
+     * clientId 为客户端 IP+instance+(unitname可选)，
+     * @return clientId
+     */
     public String buildMQClientId() {
         StringBuilder sb = new StringBuilder();
         sb.append(this.getClientIP());
@@ -89,6 +94,9 @@ public class ClientConfig {
         this.instanceName = instanceName;
     }
 
+    /**
+     * 对于instance默认值是DEFAULT，会设置为进程id
+     */
     public void changeInstanceNameToPID() {
         if (this.instanceName.equals("DEFAULT")) {
             this.instanceName = String.valueOf(UtilAll.getPid());
