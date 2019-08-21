@@ -164,6 +164,7 @@ public class TopicConfigManager extends ConfigManager {
                     if (topicConfig != null)
                         return topicConfig;
 
+                    //如果Topic没有创建，自动创建Topic开发打开后，会根据默认Topic 的 Config 来创建新的Topic 的Config
                     TopicConfig defaultTopicConfig = this.topicConfigTable.get(defaultTopic);
                     if (defaultTopicConfig != null) {
                         if (defaultTopic.equals(MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC)) {
@@ -220,6 +221,7 @@ public class TopicConfigManager extends ConfigManager {
         }
 
         if (createNew) {
+            // 向NameService 注册Topic，同步Topic信息给Slave
             this.brokerController.registerBrokerAll(false, true, true);
         }
 

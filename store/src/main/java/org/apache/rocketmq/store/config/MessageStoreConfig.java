@@ -138,6 +138,10 @@ public class MessageStoreConfig {
     private long osPageCacheBusyTimeOutMills = 1000;
     private int defaultQueryMaxNum = 32;
 
+    /**
+     * transientStorePoolEnable 为true表示内容先存储在堆外内存，然后通过Commit线程将数据提交到内存映射 Buffer 中
+     * 再通过 Flush 线程将内存映射 Buffer 中的数据持久化到磁盘中 。
+     */
     @ImportantField
     private boolean transientStorePoolEnable = false;
     private int transientStorePoolSize = 5;

@@ -199,12 +199,17 @@ public class IndexService {
     }
 
     public void buildIndex(DispatchRequest req) {
+        // Index 对应一个MappedFile
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
             long endPhyOffset = indexFile.getEndPhyOffset();
             DispatchRequest msg = req;
             String topic = msg.getTopic();
+
+            // keys 来源于message 的properties
             String keys = msg.getKeys();
+
+            // 已经构建过索引
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
@@ -249,6 +254,7 @@ public class IndexService {
         for (boolean ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp()); !ok; ) {
             log.warn("Index file [" + indexFile.getFileName() + "] is full, trying to create another one");
 
+            // 根据topic-keys或者topic-uniquKey计算Hash值
             indexFile = retryGetAndCreateIndexFile();
             if (null == indexFile) {
                 return null;

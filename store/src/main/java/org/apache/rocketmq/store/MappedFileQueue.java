@@ -16,18 +16,15 @@
  */
 package org.apache.rocketmq.store;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
-import java.util.ListIterator;
-import java.util.concurrent.CopyOnWriteArrayList;
 import org.apache.rocketmq.common.UtilAll;
 import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class MappedFileQueue {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
@@ -35,15 +32,33 @@ public class MappedFileQueue {
 
     private static final int DELETE_FILES_BATCH_MAX = 10;
 
+    /**
+     * 存储目录
+     */
     private final String storePath;
 
+    /**
+     * 单个文件的存储大小
+     */
     private final int mappedFileSize;
 
+    /**
+     * MappedFile 文件集合，维护所有映射文件的集合
+     */
     private final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<MappedFile>();
 
+    /**
+     * 创建 MappedFile 服务类
+     */
     private final AllocateMappedFileService allocateMappedFileService;
 
+    /**
+     * 当前刷盘指针，表示该指针之前的所有数据全部持久化到磁盘
+     */
     private long flushedWhere = 0;
+    /**
+     * 当前数据提交指针，内存中 ByteBuffer 当前的写指针，该值大于等于 flushedWhere
+     */
     private long committedWhere = 0;
 
     private volatile long storeTimestamp = 0;
@@ -74,6 +89,11 @@ public class MappedFileQueue {
         }
     }
 
+    /**
+     * 根据时间戳查找MappedFile
+     * @param timestamp
+     * @return
+     */
     public MappedFile getMappedFileByTime(final long timestamp) {
         Object[] mfs = this.copyMappedFiles(0);
 
@@ -191,28 +211,43 @@ public class MappedFileQueue {
         return 0;
     }
 
+    /**
+     * 如果当映射文件不存在或者当获取的映射文件写满，会计算新的映射文件起始偏移量
+     * @param startOffset
+     * @param needCreate
+     * @return
+     */
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
         long createOffset = -1;
+        // 获取最后一个映射文件，如果是null或者写满，会走创建逻辑
         MappedFile mappedFileLast = getLastMappedFile();
 
+        // 最后一个文件为空
         if (mappedFileLast == null) {
+            // 如果指定的 startOffset 不足 mappedFileSize，则从offset 0 开始
+            // 否则从 mappedFileSize 整数倍开始
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
 
         if (mappedFileLast != null && mappedFileLast.isFull()) {
+            // 上一个 CommitLog 文件起始偏移量 + CommitLog 大小
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
 
+        // 创建新的映射文件
         if (createOffset != -1 && needCreate) {
+            // 构造CommitLog名称
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
             String nextNextFilePath = this.storePath + File.separator
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
             MappedFile mappedFile = null;
 
+            // allocateMappedFileService 创建映射文件，因为是预分配，性能高。
             if (this.allocateMappedFileService != null) {
                 mappedFile = this.allocateMappedFileService.putRequestAndReturnMappedFile(nextFilePath,
                     nextNextFilePath, this.mappedFileSize);
             } else {
+                // 创建失败后，再通过new创建
                 try {
                     mappedFile = new MappedFile(nextFilePath, this.mappedFileSize);
                 } catch (IOException e) {
@@ -237,6 +272,11 @@ public class MappedFileQueue {
         return getLastMappedFile(startOffset, true);
     }
 
+    /**
+     * 获取最后一个MappedFile
+     *
+     * @return
+     */
     public MappedFile getLastMappedFile() {
         MappedFile mappedFileLast = null;
 
@@ -285,6 +325,10 @@ public class MappedFileQueue {
         return true;
     }
 
+    /**
+     * 获取第一个文件的偏移量
+     * @return
+     */
     public long getMinOffset() {
 
         if (!this.mappedFiles.isEmpty()) {
@@ -299,6 +343,10 @@ public class MappedFileQueue {
         return -1;
     }
 
+    /**
+     * 获取最后一个文件的偏移量加上MappedFile文件当前的读指针
+     * @return
+     */
     public long getMaxOffset() {
         MappedFile mappedFile = getLastMappedFile();
         if (mappedFile != null) {
@@ -307,6 +355,10 @@ public class MappedFileQueue {
         return 0;
     }
 
+    /**
+     * 获取最后一个文件的偏移量加上MappedFile文件当前的写指针
+     * @return
+     */
     public long getMaxWrotePosition() {
         MappedFile mappedFile = getLastMappedFile();
         if (mappedFile != null) {
@@ -453,6 +505,7 @@ public class MappedFileQueue {
     }
 
     /**
+     * 根据消息偏移量查找MappedFile
      * Finds a mapped file by offset.
      *
      * @param offset Offset.

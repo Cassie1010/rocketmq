@@ -18,6 +18,16 @@ package org.apache.rocketmq.store;
 
 import com.sun.jna.NativeLong;
 import com.sun.jna.Pointer;
+import org.apache.rocketmq.common.UtilAll;
+import org.apache.rocketmq.common.constant.LoggerName;
+import org.apache.rocketmq.common.message.MessageExt;
+import org.apache.rocketmq.common.message.MessageExtBatch;
+import org.apache.rocketmq.logging.InternalLogger;
+import org.apache.rocketmq.logging.InternalLoggerFactory;
+import org.apache.rocketmq.store.config.FlushDiskType;
+import org.apache.rocketmq.store.util.LibC;
+import sun.nio.ch.DirectBuffer;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -31,38 +41,75 @@ import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import org.apache.rocketmq.common.UtilAll;
-import org.apache.rocketmq.common.constant.LoggerName;
-import org.apache.rocketmq.logging.InternalLogger;
-import org.apache.rocketmq.logging.InternalLoggerFactory;
-import org.apache.rocketmq.common.message.MessageExt;
-import org.apache.rocketmq.common.message.MessageExtBatch;
-import org.apache.rocketmq.store.config.FlushDiskType;
-import org.apache.rocketmq.store.util.LibC;
-import sun.nio.ch.DirectBuffer;
 
 public class MappedFile extends ReferenceResource {
+    /**
+     * 操作系统每页大小，默认 4k
+     */
     public static final int OS_PAGE_SIZE = 1024 * 4;
     protected static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    /**
+     * 当前 JVM 实例中 MappedFile 虚拟内存
+     */
     private static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
 
+    /**
+     * 当前 JVM 实例中 MappedFile 对象个数
+     */
     private static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
+    /**
+     * 当前该文件的写指针，从 0开始(内存映射文件中的写指针)
+     */
     protected final AtomicInteger wrotePosition = new AtomicInteger(0);
+    /**
+     * 当前文件的提交指针，如果开启 transientStorePoolEnable， 则数据会存储在 TransientStorePool 中， 然后提交到内存映射 ByteBuffer 中， 再刷写到磁盘
+     */
     protected final AtomicInteger committedPosition = new AtomicInteger(0);
+    /**
+     * 刷写到磁盘指针，该指针之前的数据持久化到磁盘中
+     */
     private final AtomicInteger flushedPosition = new AtomicInteger(0);
+    /**
+     * 文件大小
+     */
     protected int fileSize;
+    /**
+     * 文件通道
+     */
     protected FileChannel fileChannel;
     /**
+     * 堆内存 ByteBuffer，如果不为空，数据首先将存储在该Buffer中， 然后提交到 MappedFile 对应的内存映射文件Buffer。
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
      */
     protected ByteBuffer writeBuffer = null;
+    /**
+     * 堆内存池
+     */
     protected TransientStorePool transientStorePool = null;
+    /**
+     * 文件名称
+     */
     private String fileName;
+    /**
+     * 该文件的初始偏移量
+     */
     private long fileFromOffset;
+    /**
+     * 物理文件
+     */
     private File file;
+    /**
+     * 物理文件对应的内存映射 Buffer
+     */
     private MappedByteBuffer mappedByteBuffer;
+    /**
+     * 文件最后一次内容写入时间
+     */
     private volatile long storeTimestamp = 0;
+    /**
+     * 是否是 MappedFileQueue 队列中第一个文件
+     */
     private boolean firstCreateInQueue = false;
 
     public MappedFile() {
@@ -200,9 +247,12 @@ public class MappedFile extends ReferenceResource {
         assert messageExt != null;
         assert cb != null;
 
+        // 当前MappedFile的写入位置
         int currentPos = this.wrotePosition.get();
 
+        // 文件还有剩余空间
         if (currentPos < this.fileSize) {
+            // 这个Buffer 和同步/异步刷盘相关（异步刷盘有两种刷盘模式可选）
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
             byteBuffer.position(currentPos);
             AppendMessageResult result;
@@ -213,6 +263,7 @@ public class MappedFile extends ReferenceResource {
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
+            // 刷新写入的位置
             this.wrotePosition.addAndGet(result.getWroteBytes());
             this.storeTimestamp = result.getStoreTimestamp();
             return result;
@@ -350,6 +401,12 @@ public class MappedFile extends ReferenceResource {
         return write > flush;
     }
 
+    /**
+     * 判断是否执行commit
+     *
+     * @param commitLeastPages
+     * @return
+     */
     protected boolean isAbleToCommit(final int commitLeastPages) {
         int flush = this.committedPosition.get();
         int write = this.wrotePosition.get();
@@ -481,9 +538,18 @@ public class MappedFile extends ReferenceResource {
         this.committedPosition.set(pos);
     }
 
+    /**
+     * 先对当前映射文件的每一个内存页写一个字节0，当刷盘策略为同步刷盘时，先执行强制刷盘，并且是每修改pages个分页刷一次盘
+     * 然后将当前映射文件全部的地址空间锁定在物理存储中，防止其被交换到swap空间。
+     * 再调用madvise，传入 WILL_NEED 策略，将刚刚锁住的内存预热，其实就是告诉内核，我马上就需要这块内存，先做虚拟内存到物理内存的映射
+     *
+     * @param type  刷盘策略
+     * @param pages 预热时一次刷盘的分页数
+     */
     public void warmMappedFile(FlushDiskType type, int pages) {
         long beginTime = System.currentTimeMillis();
         ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
+        // 记录上一次刷盘的字节数
         int flush = 0;
         long time = System.currentTimeMillis();
         for (int i = 0, j = 0; i < this.fileSize; i += MappedFile.OS_PAGE_SIZE, j++) {
@@ -544,6 +610,10 @@ public class MappedFile extends ReferenceResource {
         this.firstCreateInQueue = firstCreateInQueue;
     }
 
+    /**
+     * 将当前映射文件全部的地址空间锁定在物理存储中，防止其被交换到sawp空间中。
+     * 再调用madvise，传入WILL_NEED 策略，将刚刚锁住的内存预热
+     */
     public void mlock() {
         final long beginTime = System.currentTimeMillis();
         final long address = ((DirectBuffer) (this.mappedByteBuffer)).address();
