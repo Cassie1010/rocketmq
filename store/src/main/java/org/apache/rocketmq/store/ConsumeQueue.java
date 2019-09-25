@@ -85,6 +85,11 @@ public class ConsumeQueue {
     }
 
     public void recover() {
+        // 从倒数第三个文件恢复 -->越热的过程
+
+        // MappedFile (FlushedPosition + CommittedPosition + writePosition)
+        // MappedFileQueue (FlushedWhere CommitedWhere)
+        // ConsumeQueue (MaxPhysicOffset)
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
 
@@ -96,6 +101,8 @@ public class ConsumeQueue {
             MappedFile mappedFile = mappedFiles.get(index);
             ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
             long processOffset = mappedFile.getFileFromOffset();
+
+            // 在某个MappedFile的相对位置
             long mappedFileOffset = 0;
             long maxExtAddr = 1;
             while (true) {

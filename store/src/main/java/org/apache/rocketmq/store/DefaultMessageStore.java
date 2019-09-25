@@ -218,9 +218,11 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = true;
 
         try {
+            // abort文件是否存在
             boolean lastExitOK = !this.isTempFileExist();
             log.info("last shutdown {}", lastExitOK ? "normally" : "abnormally");
 
+            // 处理定时消息
             if (null != scheduleMessageService) {
                 result = result && this.scheduleMessageService.load();
             }
@@ -232,11 +234,14 @@ public class DefaultMessageStore implements MessageStore {
             result = result && this.loadConsumeQueue();
 
             if (result) {
+                // 数据安全落地ChenkPoint，决定commitLog从哪个开始恢复
                 this.storeCheckpoint =
                     new StoreCheckpoint(StorePathConfigHelper.getStoreCheckpoint(this.messageStoreConfig.getStorePathRootDir()));
 
+                // 索引文件初始化
                 this.indexService.load(lastExitOK);
 
+                // 消息恢复
                 this.recover(lastExitOK);
 
                 log.info("load over, and the max phy offset = {}", this.getMaxPhyOffset());
@@ -1380,14 +1385,23 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private void recover(final boolean lastExitOK) {
+        // 每个队列最大的逻辑偏移
+        // 每个队列的对后一个消息在CommitLog绝对物理位置
+        // 但这些数据和CommitLog不一致，恢复CommitLog时候需要重新构建或者删除脏数据
+        // 在所有逻辑队列最后一个消息的CommitLog绝对位置取最大值
         long maxPhyOffsetOfConsumeQueue = this.recoverConsumeQueue();
 
         if (lastExitOK) {
+            // 正常恢复CommitLog文件，保持和ConsumeQueue一致
             this.commitLog.recoverNormally(maxPhyOffsetOfConsumeQueue);
         } else {
+            // 异常恢复
             this.commitLog.recoverAbnormally(maxPhyOffsetOfConsumeQueue);
         }
 
+        // 恢复CommitLog维护的这个hashMap ： HashMap<String/*topic-queueid*/>,Log/*offset*/>
+        // 每个Topic订单每个队列的最大逻辑偏移
+        // 修正每个Topic的每个队列的最小逻辑偏移
         this.recoverTopicQueueTable();
     }
 
@@ -1414,8 +1428,10 @@ public class DefaultMessageStore implements MessageStore {
         long maxPhysicOffset = -1;
         for (ConcurrentMap<Integer, ConsumeQueue> maps : this.consumeQueueTable.values()) {
             for (ConsumeQueue logic : maps.values()) {
+                // 恢复一个逻辑队列，需要遍历所有topic下所有队列
                 logic.recover();
                 if (logic.getMaxPhysicOffset() > maxPhysicOffset) {
+                    // 恢复过程中会记录每个逻辑队列最后一个消息在commitLog中绝对物理位置
                     maxPhysicOffset = logic.getMaxPhysicOffset();
                 }
             }

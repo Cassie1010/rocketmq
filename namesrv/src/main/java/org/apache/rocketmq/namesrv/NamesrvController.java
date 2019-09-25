@@ -75,15 +75,20 @@ public class NamesrvController {
 
     public boolean initialize() {
 
+        //从 /namesrv/kvConfig.json 中加载 NameServer 的配置
         this.kvConfigManager.load();
 
+        //创建 Netty Server
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
 
+        // 创建 Netty Server 执行的线程池
         this.remotingExecutor =
             Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
 
+        //注册 NameServer 服务接受请求的处理类
         this.registerProcessor();
 
+        //定时清理超时的Broker
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -92,6 +97,7 @@ public class NamesrvController {
             }
         }, 5, 10, TimeUnit.SECONDS);
 
+        //定时打印 NameServer 的配置信息
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override

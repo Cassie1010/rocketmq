@@ -162,6 +162,12 @@ public class CommitLog {
      * When the normal exit, data recovery, all memory data have been flush
      */
     public void recoverNormally(long maxPhyOffsetOfConsumeQueue) {
+        // 正常关闭 从倒数第三个文件开始恢复
+
+        // MappedFile (FlushedPosition + CommittedPosition + writePosition)
+        // MappedFileQueue (FlushedWhere CommitedWhere)
+        // 清楚ConsumeQueue脏数据
+
         boolean checkCRCOnRecover = this.defaultMessageStore.getMessageStoreConfig().isCheckCRCOnRecover();
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
