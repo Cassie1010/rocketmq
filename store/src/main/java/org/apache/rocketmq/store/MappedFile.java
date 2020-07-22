@@ -567,6 +567,7 @@ public class MappedFile extends ReferenceResource {
                 log.info("j={}, costTime={}", j, System.currentTimeMillis() - time);
                 time = System.currentTimeMillis();
                 try {
+                    // 内存时间片
                     Thread.sleep(0);
                 } catch (InterruptedException e) {
                     log.error("Interrupted", e);
@@ -612,7 +613,7 @@ public class MappedFile extends ReferenceResource {
 
     /**
      * 将当前映射文件全部的地址空间锁定在物理存储中，防止其被交换到sawp空间中。
-     * 再调用madvise，传入WILL_NEED 策略，将刚刚锁住的内存预热
+     * 再调用madvise，传入WILL_NEED 策略，将刚刚锁住的内存预热，其实就是告诉内核，我马上就要用这块内存，先做内存到物理内存的映射。
      */
     public void mlock() {
         final long beginTime = System.currentTimeMillis();

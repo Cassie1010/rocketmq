@@ -164,7 +164,13 @@ public class MappedFileQueue {
         }
     }
 
+    /***
+     * 对 MappedFileQueue 中的 mappedFiles 进行初始化
+     * 文件首先更具文件名称对CommitLog 文件进行升序排列。
+     * @return
+     */
     public boolean load() {
+        // CommitLog文件存储目录
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
         if (files != null) {
@@ -222,7 +228,7 @@ public class MappedFileQueue {
         // 获取最后一个映射文件，如果是null或者写满，会走创建逻辑
         MappedFile mappedFileLast = getLastMappedFile();
 
-        // 最后一个文件为空
+        // 开始计算其实偏移量
         if (mappedFileLast == null) {
             // 如果指定的 startOffset 不足 mappedFileSize，则从offset 0 开始
             // 否则从 mappedFileSize 整数倍开始
@@ -236,7 +242,7 @@ public class MappedFileQueue {
 
         // 创建新的映射文件
         if (createOffset != -1 && needCreate) {
-            // 构造CommitLog名称
+            // 构造CommitLog名称，转换名称20位
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
             String nextNextFilePath = this.storePath + File.separator
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);

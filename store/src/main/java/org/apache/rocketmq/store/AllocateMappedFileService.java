@@ -36,25 +36,32 @@ import org.apache.rocketmq.store.config.BrokerRole;
  */
 public class AllocateMappedFileService extends ServiceThread {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
+    /**
+     * 等待创建映射文件的超时时间
+     */
     private static int waitTimeOut = 1000 * 5;
+    /**
+     * 用于保存当前待处理的分配请求，key是 filePath，value 是 分配请求。
+     */
     private ConcurrentMap<String, AllocateRequest> requestTable =
         new ConcurrentHashMap<String, AllocateRequest>();
+    /**
+     * 分配的优先级队列
+     */
     private PriorityBlockingQueue<AllocateRequest> requestQueue =
         new PriorityBlockingQueue<AllocateRequest>();
+    /**
+     * 标记是否发生异常
+     */
     private volatile boolean hasException = false;
+
     private DefaultMessageStore messageStore;
 
     public AllocateMappedFileService(DefaultMessageStore messageStore) {
         this.messageStore = messageStore;
     }
 
-    /**
-     *
-     * @param nextFilePath
-     * @param nextNextFilePath
-     * @param fileSize
-     * @return
-     */
+
     public MappedFile putRequestAndReturnMappedFile(String nextFilePath, String nextNextFilePath, int fileSize) {
         int canSubmitRequests = 2;
         // 当 transientStorePoolEnable 为 true、刷盘方式为异步、并且是主节点，才启用 TransientStorePool
@@ -68,13 +75,13 @@ public class AllocateMappedFileService extends ServiceThread {
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
-        // 如果requestTable中已经存在该路径文件的分配请求，说明该请求已经在队列中
+              // 如果requestTable中已经存在该路径文件的分配请求，说明该请求已经在队列中
         // 就不需要再次检查 transientStorePool 中的buffer是否够用，以及向requestQueue队列中添加请求
         if (nextPutOK) {
             // 如果transientStorePool中 buffer 不够，快速失败。
             if (canSubmitRequests <= 0) {
                 log.warn("[NOTIFYME]TransientStorePool is not enough, so create mapped file error, " +
-                    "RequestQueueSize : {}, StorePoolSize: {}", this.requestQueue.size(), this.messageStore.getTransientStorePool().availableBufferNums());
+                        "RequestQueueSize : {}, StorePoolSize: {}", this.requestQueue.size(), this.messageStore.getTransientStorePool().availableBufferNums());
                 this.requestTable.remove(nextFilePath);
                 return null;
             }
@@ -85,6 +92,7 @@ public class AllocateMappedFileService extends ServiceThread {
             canSubmitRequests--;
         }
 
+        // 第二个请求创建
         AllocateRequest nextNextReq = new AllocateRequest(nextNextFilePath, fileSize);
         boolean nextNextPutOK = this.requestTable.putIfAbsent(nextNextFilePath, nextNextReq) == null;
         if (nextNextPutOK) {

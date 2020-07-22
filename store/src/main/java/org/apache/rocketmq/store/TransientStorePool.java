@@ -32,17 +32,20 @@ public class TransientStorePool {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
     /**
-     * avaliableBuff个数
+     * 堆外内存池大小，默认为5
      */
     private final int poolSize;
     /**
-     * 每个 ByteBuffer 大小， 默认为 mappedFileSizeCommitLog
+     * 映射文件大小， 默认为16
      */
     private final int fileSize;
     /**
-     * ByteBuffer容器，双端队列，保存对外内存中的Buffer
+     * ByteBuffer容器，双端队列，保存堆外内存中的Buffer
      */
     private final Deque<ByteBuffer> availableBuffers;
+    /**
+     * 储存相关配置
+     */
     private final MessageStoreConfig storeConfig;
 
     public TransientStorePool(final MessageStoreConfig storeConfig) {

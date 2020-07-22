@@ -556,7 +556,7 @@ public class CommitLog {
         // Set the storage time
         // message存储到broker的时间
         msg.setStoreTimestamp(System.currentTimeMillis());
-        // body 的crc校验码，放置消息内容被篡改和破坏
+        // body 的crc校验码，防止消息内容被篡改和破坏
         // Set the message body BODY CRC (consider the most appropriate setting on the client)
         msg.setBodyCRC(UtilAll.crc32(msg.getBody()));
         // Back to Results
@@ -599,6 +599,7 @@ public class CommitLog {
 
         // 获取写入内存映射文件
         MappedFile unlockMappedFile = null;
+        // 1. 获取最后一个映射文件
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
         //spin or ReentrantLock ,depending on store config
@@ -612,9 +613,9 @@ public class CommitLog {
             // 加锁后在设置一次，为了保证全局有序
             msg.setStoreTimestamp(beginLockTimestamp);
 
+            // 2. 这里为null
             if (null == mappedFile || mappedFile.isFull()) {
-                // 获取最后一个映射文件
-                //
+                // 3. 获取最后一个映射文件
                 mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
             }
             if (null == mappedFile) {
